@@ -470,6 +470,6 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     showToast("تعذر تحديث كلفة التوصيل");
   });
 
-  setTheme(localStorage.getItem("printlab-theme") || "dark");
+  setTheme(localStorage.getItem("printlab-theme") || "light");
   renderCategories(); renderProducts(); updateCounts();
 })();
