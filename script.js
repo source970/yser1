@@ -39,6 +39,18 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     return Number.isFinite(stock) && stock >= 0 ? Math.floor(stock) : 0;
   }
 
+  function productAddedAt(product) {
+    const createdAt = product?.createdAt ?? product?.createdAtClient;
+    if (typeof createdAt?.toMillis === "function") return createdAt.toMillis();
+    if (Number.isFinite(Number(createdAt?.seconds))) {
+      return (Number(createdAt.seconds) * 1000) + Math.floor((Number(createdAt.nanoseconds) || 0) / 1000000);
+    }
+    const parsedDate = Date.parse(createdAt);
+    if (Number.isFinite(parsedDate)) return parsedDate;
+    const numericId = Number(product?.id);
+    return Number.isFinite(numericId) ? numericId : 0;
+  }
+
   function productArtwork(product) {
     if (product.image) {
       return `<div class="product-art remote-image" style="--accent:${product.color || "#f6aa1c"}"><img src="${product.image}" alt="${escapeHtml(product.name)}"><small>HORIZON 3D SELECT</small></div>`;
@@ -62,6 +74,7 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
       const searchMatch = !term || `${p.name} ${p.categoryLabel}`.toLowerCase().includes(term);
       return categoryMatch && wishlistMatch && searchMatch;
     });
+    if (state.sort === "featured") list.sort((a,b) => productAddedAt(b) - productAddedAt(a));
     if (state.sort === "price-asc") list.sort((a,b) => discountedPrice(a) - discountedPrice(b));
     if (state.sort === "price-desc") list.sort((a,b) => discountedPrice(b) - discountedPrice(a));
     if (state.sort === "rating") list.sort((a,b) => b.rating - a.rating);
