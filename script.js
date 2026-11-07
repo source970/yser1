@@ -12,7 +12,8 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     view: "products",
     visibleLimit: 8,
     cart: JSON.parse(localStorage.getItem("printlab-cart") || "{}"),
-    wishlist: JSON.parse(localStorage.getItem("printlab-wishlist") || "[]")
+    wishlist: JSON.parse(localStorage.getItem("printlab-wishlist") || "[]"),
+    selectedVariants: JSON.parse(localStorage.getItem("printlab-selected-variants") || "{}")
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -34,9 +35,48 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     return productPricing(product).sale;
   }
 
-  function productStock(product) {
+  function productVariants(product) {
+    return (Array.isArray(product?.variants) ? product.variants : [])
+      .map((variant, index) => ({
+        id: String(variant?.id || `variant-${index + 1}`),
+        name: String(variant?.name || "").trim(),
+        color: /^#[0-9a-f]{6}$/i.test(String(variant?.color || "")) ? String(variant.color) : "#111111",
+        image: String(variant?.image || ""),
+        stock: Math.max(0, Math.floor(Number(variant?.stock) || 0)),
+      }))
+      .filter((variant) => variant.name && variant.image);
+  }
+
+  function selectedVariant(product, requestedId = "") {
+    if (!product) return null;
+    const variants = productVariants(product);
+    if (!variants.length) return null;
+    const selectedId = requestedId || state.selectedVariants[product.id];
+    return variants.find((variant) => variant.id === selectedId)
+      || variants.find((variant) => variant.stock > 0)
+      || variants[0];
+  }
+
+  function productStock(product, variantId = "") {
+    const variant = selectedVariant(product, variantId);
+    if (variant) return variant.stock;
     const stock = Number(product?.stock);
     return Number.isFinite(stock) && stock >= 0 ? Math.floor(stock) : 0;
+  }
+
+  function cartKey(productId, variantId = "") {
+    return variantId ? `${productId}::${variantId}` : String(productId);
+  }
+
+  function parseCartKey(key) {
+    const [productId, variantId = ""] = String(key).split("::");
+    return { productId: Number(productId), variantId };
+  }
+
+  function cartQuantityForProduct(productId) {
+    return Object.entries(state.cart).reduce((sum, [key, quantity]) => {
+      return sum + (parseCartKey(key).productId === Number(productId) ? Number(quantity) || 0 : 0);
+    }, 0);
   }
 
   function productAddedAt(product) {
@@ -51,9 +91,10 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     return Number.isFinite(numericId) ? numericId : 0;
   }
 
-  function productArtwork(product) {
-    if (product.image) {
-      return `<div class="product-art remote-image" style="--accent:${product.color || "#f6aa1c"}"><img src="${product.image}" alt="${escapeHtml(product.name)}"><small>HORIZON 3D SELECT</small></div>`;
+  function productArtwork(product, variant = selectedVariant(product)) {
+    const image = variant?.image || product.image;
+    if (image) {
+      return `<div class="product-art remote-image" style="--accent:${variant?.color || product.color || "#f6aa1c"}"><img src="${image}" alt="${escapeHtml(product.name)}${variant ? ` — ${escapeHtml(variant.name)}` : ""}"><small>HORIZON 3D SELECT</small></div>`;
     }
     const art = {
       printer: `<div class="mini-printer"><i></i><b></b><span></span></div>`,
@@ -81,17 +122,31 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     return list;
   }
 
+  function variantSwatchesHtml(product, selected = selectedVariant(product), context = "card") {
+    const variants = productVariants(product);
+    if (!variants.length) return "";
+    return `<div class="variant-swatches ${context === "modal" ? "modal-variant-swatches" : ""}" role="group" aria-label="اختر لون ${escapeHtml(product.name)}">
+      ${variants.map((variant) => `<button type="button" class="variant-swatch ${selected?.id === variant.id ? "active" : ""} ${variant.stock === 0 ? "sold-out" : ""}" style="--swatch:${variant.color}" data-select-variant="${escapeHtml(variant.id)}" data-variant-product="${product.id}" title="${escapeHtml(variant.name)}${variant.stock === 0 ? " — نافذ" : ""}" aria-label="${escapeHtml(variant.name)}" aria-pressed="${selected?.id === variant.id}"><i></i></button>`).join("")}
+      <span class="selected-variant-name">${escapeHtml(selected?.name || "")}</span>
+    </div>`;
+  }
+
   function renderProducts() {
     const allMatches = getVisibleProducts();
     const list = allMatches.slice(0, state.visibleLimit);
-    $("#productGrid").innerHTML = list.map((p) => `
-      <article class="product-card ${productStock(p) === 0 ? "out-of-stock" : ""} ${state.cart[p.id] > 0 ? "in-cart" : ""}" data-product-card="${p.id}">
-        ${state.cart[p.id] > 0 ? `<span class="cart-selected-badge">✓ في السلة (${state.cart[p.id]})</span>` : ""}
+    $("#productGrid").innerHTML = list.map((p) => {
+      const variant = selectedVariant(p);
+      const stock = productStock(p, variant?.id);
+      const cartQuantity = cartQuantityForProduct(p.id);
+      return `
+      <article class="product-card ${stock === 0 ? "out-of-stock" : ""} ${cartQuantity > 0 ? "in-cart" : ""}" data-product-card="${p.id}">
+        ${cartQuantity > 0 ? `<span class="cart-selected-badge">✓ في السلة (${cartQuantity})</span>` : ""}
         <div class="product-image">
           ${p.badge ? `<span class="product-badge">${p.badge}</span>` : ""}
           <button class="wish ${state.wishlist.includes(p.id) ? "active" : ""}" data-wish="${p.id}" aria-label="إضافة للمفضلة">${state.wishlist.includes(p.id) ? "♥" : "♡"}</button>
           <button class="quick" data-quick="${p.id}">معاينة سريعة</button>
-          ${productArtwork(p)}
+          ${productArtwork(p, variant)}
+          ${variantSwatchesHtml(p, variant)}
         </div>
         <div class="product-info">
           <small>${p.categoryLabel}</small>
@@ -99,11 +154,12 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
           <div class="rating"><span>★★★★★</span> <small>${p.rating} (${p.reviews})</small></div>
           <div class="product-meta-row">
             <div class="price"><b>${money(discountedPrice(p))}</b>${productPricing(p).compareAt ? `<del>${money(productPricing(p).compareAt)}</del>` : ""}</div>
-            <span class="stock-badge ${productStock(p) === 0 ? "empty" : ""}">${productStock(p) === 0 ? "نافذ" : `متوفر: ${productStock(p)}`}</span>
+            <span class="stock-badge ${stock === 0 ? "empty" : ""}">${stock === 0 ? "نافذ" : `متوفر: ${stock}`}</span>
           </div>
-          <button class="add-cart" data-add="${p.id}" ${productStock(p) === 0 ? "disabled" : ""}><span>${productStock(p) === 0 ? "نافذ" : "أضف للسلة"}</span><b>${productStock(p) === 0 ? "×" : "＋"}</b></button>
+          <button class="add-cart" data-add="${p.id}" ${stock === 0 ? "disabled" : ""}><span>${stock === 0 ? "نافذ" : "أضف للسلة"}</span><b>${stock === 0 ? "×" : "＋"}</b></button>
         </div>
-      </article>`).join("");
+      </article>`;
+    }).join("");
     $("#emptyState").hidden = list.length > 0;
     $("#productGrid").hidden = list.length === 0;
     if (!list.length && state.view === "wishlist") $("#emptyState").innerHTML = `<span>♡</span><h3>المفضلات فارغة</h3><p>اضغط على القلب في أي منتج لإضافته هنا.</p>`;
@@ -132,6 +188,15 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     $$('[data-add]').forEach((button) => button.onclick = () => addToCart(Number(button.dataset.add)));
     $$('[data-wish]').forEach((button) => button.onclick = () => toggleWish(Number(button.dataset.wish)));
     $$('[data-quick]').forEach((button) => button.onclick = () => openProduct(Number(button.dataset.quick)));
+    $$('[data-select-variant]').forEach((button) => button.onclick = (event) => {
+      event.stopPropagation();
+      const product = products.find((item) => item.id === Number(button.dataset.variantProduct));
+      const variant = selectedVariant(product, button.dataset.selectVariant);
+      if (!product || !variant) return;
+      state.selectedVariants[product.id] = variant.id;
+      saveState();
+      renderProducts();
+    });
     $$('[data-product-card]').forEach((card) => card.onclick = (event) => {
       if (event.target.closest("button, a")) return;
       openProduct(Number(card.dataset.productCard));
@@ -141,20 +206,24 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   function saveState() {
     localStorage.setItem("printlab-cart", JSON.stringify(state.cart));
     localStorage.setItem("printlab-wishlist", JSON.stringify(state.wishlist));
+    localStorage.setItem("printlab-selected-variants", JSON.stringify(state.selectedVariants));
   }
 
-  function addToCart(id) {
+  function addToCart(id, requestedVariantId = "") {
     const product = products.find((item) => item.id === Number(id));
-    if (!product || productStock(product) === 0) {
+    const variant = selectedVariant(product, requestedVariantId);
+    const stock = productStock(product, variant?.id);
+    if (!product || stock === 0) {
       showToast("هذا المنتج نافذ حاليًا");
       return;
     }
-    if ((state.cart[id] || 0) >= productStock(product)) {
-      showToast(`الكمية المتوفرة من هذا المنتج هي ${productStock(product)} فقط`);
+    const key = cartKey(id, variant?.id);
+    if ((state.cart[key] || 0) >= stock) {
+      showToast(`الكمية المتوفرة من ${variant ? `لون ${variant.name}` : "هذا المنتج"} هي ${stock} فقط`);
       return;
     }
-    state.cart[id] = (state.cart[id] || 0) + 1;
-    saveState(); updateCart(); renderProducts(); showToast("تمت إضافة المنتج إلى السلة");
+    state.cart[key] = (state.cart[key] || 0) + 1;
+    saveState(); updateCart(); renderProducts(); showToast(variant ? `تمت إضافة لون ${variant.name} إلى السلة` : "تمت إضافة المنتج إلى السلة");
   }
 
   function toggleWish(id) {
@@ -173,35 +242,50 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
 
   function updateCart() {
     let cartChanged = false;
-    Object.keys(state.cart).forEach((id) => {
-      const product = products.find((item) => item.id === Number(id));
-      const available = productStock(product);
-      if (!product || available === 0) {
-        delete state.cart[id];
+    Object.keys(state.cart).forEach((key) => {
+      const { productId, variantId } = parseCartKey(key);
+      const product = products.find((item) => item.id === productId);
+      const variants = productVariants(product);
+      if (product && !variantId && variants.length) {
+        const variant = selectedVariant(product);
+        const migratedKey = cartKey(productId, variant?.id);
+        state.cart[migratedKey] = Math.min(variant?.stock || 0, (state.cart[migratedKey] || 0) + (Number(state.cart[key]) || 0));
+        delete state.cart[key];
         cartChanged = true;
-      } else if (state.cart[id] > available) {
-        state.cart[id] = available;
+        return;
+      }
+      const variant = variantId ? variants.find((item) => item.id === variantId) : null;
+      const available = product ? productStock(product, variant?.id) : 0;
+      if (!product || (variantId && !variant) || available === 0) {
+        delete state.cart[key];
+        cartChanged = true;
+      } else if (state.cart[key] > available) {
+        state.cart[key] = available;
         cartChanged = true;
       }
     });
     if (cartChanged) saveState();
-    const entries = Object.entries(state.cart).filter(([,qty]) => qty > 0);
-    $("#cartItems").innerHTML = entries.map(([id,qty]) => {
-      const p = products.find((item) => item.id === Number(id));
+    const entries = Object.entries(state.cart).map(([key, quantity]) => {
+      const parsed = parseCartKey(key);
+      const product = products.find((item) => item.id === parsed.productId);
+      const variant = parsed.variantId ? productVariants(product).find((item) => item.id === parsed.variantId) : null;
+      return { key, quantity: Number(quantity) || 0, product, variant };
+    }).filter((entry) => entry.quantity > 0 && entry.product);
+    $("#cartItems").innerHTML = entries.map(({ key, quantity, product: p, variant }) => {
       return `<article class="cart-row">
-        <div class="cart-thumb">${productArtwork(p)}</div>
-        <div><h4>${p.name}</h4><b>${money(discountedPrice(p))}</b><div class="qty"><button data-minus="${p.id}">−</button><span>${qty}</span><button data-plus="${p.id}" ${qty >= productStock(p) ? "disabled" : ""}>＋</button></div></div>
-        <button class="remove" data-remove="${p.id}" aria-label="حذف">×</button>
+        <div class="cart-thumb">${productArtwork(p, variant)}</div>
+        <div><h4>${p.name}</h4>${variant ? `<span class="cart-variant"><i style="--swatch:${variant.color}"></i>${escapeHtml(variant.name)}</span>` : ""}<b>${money(discountedPrice(p))}</b><div class="qty"><button data-minus="${escapeHtml(key)}">−</button><span>${quantity}</span><button data-plus="${escapeHtml(key)}" ${quantity >= productStock(p, variant?.id) ? "disabled" : ""}>＋</button></div></div>
+        <button class="remove" data-remove="${escapeHtml(key)}" aria-label="حذف">×</button>
       </article>`;
     }).join("");
-    const subtotal = entries.reduce((sum,[id,qty]) => sum + discountedPrice(products.find((p) => p.id === Number(id))) * qty, 0);
+    const subtotal = entries.reduce((sum, entry) => sum + discountedPrice(entry.product) * entry.quantity, 0);
     const total = entries.length ? subtotal + deliveryCost : 0;
     $("#cartSubtotal").textContent = money(subtotal);
     $("#shippingCost").textContent = money(deliveryCost);
     $("#cartTotal").textContent = money(total);
     $("#cartEmpty").hidden = entries.length > 0;
     $("#cartFooter").hidden = entries.length === 0;
-    $$('[data-plus]').forEach((b) => b.onclick = () => addToCart(Number(b.dataset.plus)));
+    $$('[data-plus]').forEach((b) => b.onclick = () => { const parsed = parseCartKey(b.dataset.plus); addToCart(parsed.productId, parsed.variantId); });
     $$('[data-minus]').forEach((b) => b.onclick = () => { state.cart[b.dataset.minus]--; if (state.cart[b.dataset.minus] <= 0) delete state.cart[b.dataset.minus]; saveState(); updateCart(); renderProducts(); });
     $$('[data-remove]').forEach((b) => b.onclick = () => { delete state.cart[b.dataset.remove]; saveState(); updateCart(); renderProducts(); });
     updateCounts();
@@ -218,17 +302,25 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
 
   function openProduct(id) {
     const p = products.find((item) => item.id === id);
+    if (!p) return;
+    const variant = selectedVariant(p);
     const pricing = productPricing(p);
-    const stock = productStock(p);
-    $("#modalContent").innerHTML = `<div class="modal-grid"><div>${productArtwork(p)}</div><div><small>${p.categoryLabel}</small><h2>${p.name}</h2><div class="rating"><span>★★★★★</span> ${p.rating} (${p.reviews} تقييماً)</div><p>${p.description || "منتج مختار بعناية بجودة موثوقة وضمان من Horizon 3D Store."}</p><div class="price big"><b>${money(pricing.sale)}</b>${pricing.compareAt ? `<del>${money(pricing.compareAt)}</del>` : ""}</div><p class="stock">● متوفر الآن — ${stock} قطع</p><div class="modal-actions"><button class="btn primary" id="modalAdd">أضف للسلة</button><button class="btn modal-back" id="modalBack">رجوع للمنتجات</button></div></div></div>`;
+    const stock = productStock(p, variant?.id);
+    $("#modalContent").innerHTML = `<div class="modal-grid"><div><div class="modal-product-art">${productArtwork(p, variant)}${variantSwatchesHtml(p, variant, "modal")}</div></div><div><small>${p.categoryLabel}</small><h2>${p.name}</h2><div class="rating"><span>★★★★★</span> ${p.rating} (${p.reviews} تقييماً)</div><p>${p.description || "منتج مختار بعناية بجودة موثوقة وضمان من Horizon 3D Store."}</p><div class="price big"><b>${money(pricing.sale)}</b>${pricing.compareAt ? `<del>${money(pricing.compareAt)}</del>` : ""}</div><p class="stock">● متوفر الآن — ${stock} قطع</p><div class="modal-actions"><button class="btn primary" id="modalAdd">أضف للسلة</button><button class="btn modal-back" id="modalBack">رجوع للمنتجات</button></div></div></div>`;
     const stockLabel = $("#modalContent .stock");
     stockLabel.textContent = stock === 0 ? "نافذ حاليًا" : `متوفر الآن — ${stock} قطعة`;
     stockLabel.classList.toggle("out", stock === 0);
     const modalAddButton = $("#modalAdd");
     modalAddButton.disabled = stock === 0;
     modalAddButton.textContent = stock === 0 ? "المنتج نافذ" : "أضف للسلة";
-    $("#productModal").showModal();
-    modalAddButton.onclick = () => { addToCart(id); $("#productModal").close(); };
+    if (!$("#productModal").open) $("#productModal").showModal();
+    modalAddButton.onclick = () => { addToCart(id, variant?.id); $("#productModal").close(); };
+    $$('#modalContent [data-select-variant]').forEach((button) => button.onclick = () => {
+      state.selectedVariants[id] = button.dataset.selectVariant;
+      saveState();
+      renderProducts();
+      openProduct(id);
+    });
     $("#modalBack").onclick = () => $("#productModal").close();
   }
 
@@ -337,7 +429,11 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     address: $("#customerAddress"), governorate: $("#customerGovernorate")
   };
   function currentOrderTotal() {
-    return Object.entries(state.cart).reduce((sum,[id,qty]) => sum + discountedPrice(products.find((p) => p.id === Number(id))) * qty, 0) + deliveryCost;
+    return Object.entries(state.cart).reduce((sum, [key, quantity]) => {
+      const { productId } = parseCartKey(key);
+      const product = products.find((item) => item.id === productId);
+      return sum + (product ? discountedPrice(product) * (Number(quantity) || 0) : 0);
+    }, 0) + deliveryCost;
   }
   function clearFieldErrors() {
     $$('.field-error').forEach((item) => item.textContent = "");
@@ -367,28 +463,39 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     if (checkoutFields.address.value.trim().length < 5) { fieldError(checkoutFields.address,"#addressError","اكتب العنوان بالتفصيل"); valid = false; }
     if (!checkoutFields.governorate.value) { fieldError(checkoutFields.governorate,"#governorateError","اختر المحافظة"); valid = false; }
     if (!valid) return;
-    const stockIssue = Object.entries(state.cart).map(([id, quantity]) => ({
-      product: products.find((item) => item.id === Number(id)),
+    const stockIssue = Object.entries(state.cart).map(([key, quantity]) => {
+      const { productId, variantId } = parseCartKey(key);
+      const product = products.find((item) => item.id === productId);
+      const variant = variantId ? productVariants(product).find((item) => item.id === variantId) : null;
+      return {
+      product,
+      variant,
+      variantId,
       quantity: Number(quantity) || 0,
-    })).find((item) => !item.product || item.quantity > productStock(item.product));
+    }; }).find((item) => !item.product || (item.variantId && !item.variant) || item.quantity > productStock(item.product, item.variant?.id));
     if (stockIssue) {
       updateCart();
-      showToast(stockIssue.product ? `الكمية المتوفرة من «${stockIssue.product.name}» هي ${productStock(stockIssue.product)} فقط` : "أحد المنتجات لم يعد متوفرًا");
+      showToast(stockIssue.product ? `الكمية المتوفرة من ${stockIssue.variant ? `لون «${stockIssue.variant.name}»` : `«${stockIssue.product.name}»`} هي ${productStock(stockIssue.product, stockIssue.variant?.id)} فقط` : "أحد المنتجات لم يعد متوفرًا");
       return;
     }
     const submit = checkoutForm.querySelector('button[type="submit"]');
     submit.disabled = true;
     try {
       const orderRef = `HZ-${Date.now().toString().slice(-7)}`;
-      const items = Object.entries(state.cart).map(([id, quantity]) => {
-        const product = products.find((item) => item.id === Number(id));
+      const items = Object.entries(state.cart).map(([key, quantity]) => {
+        const { productId, variantId } = parseCartKey(key);
+        const product = products.find((item) => item.id === productId);
+        const variant = variantId ? productVariants(product).find((item) => item.id === variantId) : null;
         const price = discountedPrice(product);
         return {
-          id: Number(id),
+          id: productId,
           productDocId: product.docId || "",
           name: product.name,
-          image: product.image || "",
+          image: variant?.image || product.image || "",
           categoryLabel: product.categoryLabel || "",
+          variantId: variant?.id || "",
+          variantName: variant?.name || "",
+          variantColor: variant?.color || "",
           price,
           quantity,
           lineTotal: price * quantity,
@@ -437,8 +544,8 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
         stock: productStock(product),
       }));
     products.splice(0, products.length, ...remoteProducts);
-    Object.keys(state.cart).forEach((id) => {
-      if (!products.some((product) => product.id === Number(id))) delete state.cart[id];
+    Object.keys(state.cart).forEach((key) => {
+      if (!products.some((product) => product.id === parseCartKey(key).productId)) delete state.cart[key];
     });
     state.wishlist = state.wishlist.filter((id) => products.some((product) => product.id === id));
     saveState();
@@ -462,7 +569,7 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     const savedCost = Number(snapshot.data()?.deliveryCost);
     deliveryCost = Number.isFinite(savedCost) && savedCost >= 0 ? savedCost : 5000;
     $("#shippingCost").textContent = money(deliveryCost);
-    const cartProductsReady = Object.keys(state.cart).every((id) => products.some((product) => product.id === Number(id)));
+    const cartProductsReady = Object.keys(state.cart).every((key) => products.some((product) => product.id === parseCartKey(key).productId));
     if (cartProductsReady) updateCart();
     if (checkoutModal.open && cartProductsReady) $("#checkoutOrderTotal").textContent = money(currentOrderTotal());
   }, (error) => {
