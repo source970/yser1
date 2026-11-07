@@ -5,7 +5,7 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   let categories = [];
   let deliveryCost = 5000;
   const PROFILE_KEY = "horizon3d-profile";
-  const MATERIAL_TYPES = ["PLA", "PLA+", "PETG", "ABS", "ASA"];
+  const MATERIAL_TYPES = ["PLA", "PLA+", "PETG", "ABS", "ASA", "TPU", "Like Marble", "Resin", "Water Wash Resin", "Standard Resin", "ABS Resin", "Tough Resin", "16K Resin"];
   const state = {
     category: "all",
     material: "all",
@@ -23,8 +23,9 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   const money = (value) => `${new Intl.NumberFormat("en-US").format(value)} د.ع`;
 
   function normalizeMaterialType(value) {
-    const normalized = String(value || "").trim().toUpperCase().replace(/\s*\+\s*/g, "+");
-    return MATERIAL_TYPES.includes(normalized) ? normalized : "";
+    const cleaned = String(value || "").trim().replace(/\s+/g, " ").replace(/\s*\+\s*/g, "+").slice(0, 40);
+    if (!cleaned) return "";
+    return MATERIAL_TYPES.find((type) => type.toLowerCase() === cleaned.toLowerCase()) || cleaned;
   }
 
   function productPricing(product) {
@@ -378,11 +379,18 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   };
 
   function renderMaterialFilter() {
-    const available = new Set(products.map((product) => normalizeMaterialType(product.materialType)).filter(Boolean));
-    const options = MATERIAL_TYPES.filter((type) => available.has(type));
+    const available = new Map();
+    products.map((product) => normalizeMaterialType(product.materialType)).filter(Boolean).forEach((type) => {
+      if (!available.has(type.toLowerCase())) available.set(type.toLowerCase(), type);
+    });
+    const defaultOptions = MATERIAL_TYPES.filter((type) => available.has(type.toLowerCase()));
+    const customOptions = [...available.values()]
+      .filter((type) => !MATERIAL_TYPES.some((defaultType) => defaultType.toLowerCase() === type.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, "en"));
+    const options = [...defaultOptions, ...customOptions];
     const select = $("#materialFilter");
-    if (state.material !== "all" && !available.has(state.material)) state.material = "all";
-    select.innerHTML = '<option value="all">كل المواد</option>' + options.map((type) => `<option value="${type}">${type}</option>`).join("");
+    if (state.material !== "all" && !available.has(state.material.toLowerCase())) state.material = "all";
+    select.innerHTML = '<option value="all">كل المواد</option>' + options.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("");
     select.value = state.material;
     select.hidden = options.length === 0;
   }
