@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="متجر Horizon 3D Store لمستلزمات الطباعة ثلاثية الأبعاد في العراق">
   <title>Horizon 3D Store | عالم الطباعة ثلاثية الأبعاد</title>
-  <link rel="stylesheet" href="style.css?v=20261107-color-variants-1">
+  <link rel="stylesheet" href="style.css?v=20261107-bottom-dock-4">
 </head>
 <body class="intro-active">
   <div class="store-intro" id="storeIntro" role="status" aria-label="Horizon 3D Store">
@@ -102,6 +102,9 @@
         <div class="section-heading">
           <div><span class="eyebrow">الأكثر طلباً</span><h2>منتجات مختارة لك</h2></div>
           <div class="product-controls">
+            <select id="materialFilter" aria-label="فلترة حسب نوع المادة" hidden>
+              <option value="all">كل المواد</option>
+            </select>
             <select id="sortSelect" aria-label="ترتيب المنتجات">
               <option value="featured">الأبرز</option>
               <option value="price-asc">السعر: الأقل</option>
@@ -276,9 +279,9 @@
       <span class="home-orbit"><span class="dock-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9Z"/></svg></span></span>
       <small>الرئيسية</small>
     </a>
-    <button class="dock-item dock-categories" id="bottomCategories" type="button" aria-label="فتح الفئات">
+    <button class="dock-item dock-categories" id="bottomCategories" type="button" aria-label="فتح المنتجات">
       <span class="dock-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z"/></svg></span>
-      <small>الفئات</small>
+      <small>المنتجات</small>
     </button>
     <button class="dock-item dock-profile" id="bottomProfile" type="button" aria-label="فتح البروفايل">
       <span class="dock-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm8 9a8 8 0 0 0-16 0"/></svg></span>
@@ -291,9 +294,9 @@
     .dock-cart{grid-column:1}.dock-favorites{grid-column:2}.dock-home{grid-column:3}.dock-categories{grid-column:4}.dock-profile{grid-column:5}
     .dock-favorites .dock-icon b{position:absolute;top:-8px;left:-8px;min-width:19px;height:19px;display:grid;place-items:center;padding:0 5px;background:var(--primary);color:#1c1408;border:2px solid var(--surface);border-radius:10px;font-size:9px}
     .product-card{cursor:pointer}.modal-actions{display:flex;gap:9px;margin-top:18px}.modal-actions .btn{flex:1;padding:0 12px}.modal-back{border:1px solid var(--line);background:var(--surface-2);color:var(--ink)}.modal-back:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-2px)}
-    @media(max-width:640px){.bottom-dock{padding-inline:8px}.dock-item small{font-size:8px}.modal-actions{flex-direction:column}}
+    @media(max-width:640px){.bottom-dock{padding-inline:8px}.dock-item small{font-size:9px}.dock-cart small,.dock-categories small{font-size:11px}.modal-actions{flex-direction:column}}
   </style>
 
-  <script type="module" src="script.js?v=20261107-color-variants-1"></script>
+  <script type="module" src="script.js?v=20261107-material-filter-3"></script>
 </body>
 </html>

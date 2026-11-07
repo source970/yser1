@@ -5,8 +5,10 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   let categories = [];
   let deliveryCost = 5000;
   const PROFILE_KEY = "horizon3d-profile";
+  const MATERIAL_TYPES = ["PLA", "PLA+", "PETG", "ABS", "ASA"];
   const state = {
     category: "all",
+    material: "all",
     query: "",
     sort: "featured",
     view: "products",
@@ -19,6 +21,11 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const money = (value) => `${new Intl.NumberFormat("en-US").format(value)} د.ع`;
+
+  function normalizeMaterialType(value) {
+    const normalized = String(value || "").trim().toUpperCase().replace(/\s*\+\s*/g, "+");
+    return MATERIAL_TYPES.includes(normalized) ? normalized : "";
+  }
 
   function productPricing(product) {
     const price = Math.max(0, Number(product?.price) || 0);
@@ -110,10 +117,11 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
   function getVisibleProducts() {
     let list = products.filter((p) => {
       const categoryMatch = state.category === "all" || p.category === state.category;
+      const materialMatch = state.material === "all" || p.materialType === state.material;
       const wishlistMatch = state.view !== "wishlist" || state.wishlist.includes(p.id);
       const term = state.query.trim().toLowerCase();
-      const searchMatch = !term || `${p.name} ${p.categoryLabel}`.toLowerCase().includes(term);
-      return categoryMatch && wishlistMatch && searchMatch;
+      const searchMatch = !term || `${p.name} ${p.categoryLabel} ${p.materialType || ""}`.toLowerCase().includes(term);
+      return categoryMatch && materialMatch && wishlistMatch && searchMatch;
     });
     if (state.sort === "featured") list.sort((a,b) => productAddedAt(b) - productAddedAt(a));
     if (state.sort === "price-asc") list.sort((a,b) => discountedPrice(a) - discountedPrice(b));
@@ -149,7 +157,7 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
           ${variantSwatchesHtml(p, variant)}
         </div>
         <div class="product-info">
-          <small>${p.categoryLabel}</small>
+          <small>${p.categoryLabel}${p.materialType ? ` · ${p.materialType}` : ""}</small>
           <h3>${p.name}</h3>
           <div class="rating"><span>★★★★★</span> <small>${p.rating} (${p.reviews})</small></div>
           <div class="product-meta-row">
@@ -170,10 +178,19 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     $("#loadMoreWrap").hidden = remaining === 0;
     $("#remainingCount").textContent = remaining ? `${remaining} منتجات متبقية` : "";
     const filter = $("#activeFilter");
-    if (state.query) {
+    if (state.query || state.material !== "all") {
       filter.hidden = false;
-      filter.innerHTML = `نتائج البحث عن: <b>${escapeHtml(state.query)}</b> <button id="clearSearch">× مسح</button>`;
-      $("#clearSearch").onclick = () => { state.query = ""; state.visibleLimit = 8; $("#searchInput").value = ""; renderProducts(); };
+      const queryLabel = state.query ? `البحث: <b>${escapeHtml(state.query)}</b>` : "";
+      const materialLabel = state.material !== "all" ? `المادة: <b>${escapeHtml(state.material)}</b>` : "";
+      filter.innerHTML = `${[queryLabel, materialLabel].filter(Boolean).join(" — ")} <button id="clearSearch">× مسح الفلتر</button>`;
+      $("#clearSearch").onclick = () => {
+        state.query = "";
+        state.material = "all";
+        state.visibleLimit = 8;
+        $("#searchInput").value = "";
+        $("#materialFilter").value = "all";
+        renderProducts();
+      };
     } else filter.hidden = true;
     bindProductButtons();
   }
@@ -353,6 +370,22 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
     updateLiveSearch(true);
   };
   $("#sortSelect").onchange = (e) => { state.sort = e.target.value; state.visibleLimit = 8; renderProducts(); };
+  $("#materialFilter").onchange = (event) => {
+    state.material = event.target.value;
+    state.visibleLimit = 8;
+    state.view = "products";
+    renderProducts();
+  };
+
+  function renderMaterialFilter() {
+    const available = new Set(products.map((product) => normalizeMaterialType(product.materialType)).filter(Boolean));
+    const options = MATERIAL_TYPES.filter((type) => available.has(type));
+    const select = $("#materialFilter");
+    if (state.material !== "all" && !available.has(state.material)) state.material = "all";
+    select.innerHTML = '<option value="all">كل المواد</option>' + options.map((type) => `<option value="${type}">${type}</option>`).join("");
+    select.value = state.material;
+    select.hidden = options.length === 0;
+  }
   function bindCategoryFilters() {
     $$('.category-card').forEach((button) => button.onclick = () => { state.view = "products"; state.category = button.dataset.category; state.visibleLimit = 8; $$('.category-card').forEach((b) => b.classList.toggle("active", b === button)); renderProducts(); $("#products").scrollIntoView({behavior:"smooth"}); });
     $$('[data-filter-link]').forEach((link) => link.onclick = () => { state.view = "products"; state.category = link.dataset.filterLink; state.visibleLimit = 8; renderProducts(); });
@@ -541,9 +574,11 @@ import { addDoc, collection, db, doc, onSnapshot, serverTimestamp } from "./fire
         id: Number(product.id),
         price: Number(product.price) || 0,
         discount: Number(product.discount) || 0,
+        materialType: normalizeMaterialType(product.materialType),
         stock: productStock(product),
       }));
     products.splice(0, products.length, ...remoteProducts);
+    renderMaterialFilter();
     Object.keys(state.cart).forEach((key) => {
       if (!products.some((product) => product.id === parseCartKey(key).productId)) delete state.cart[key];
     });
